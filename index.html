@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-Hant-HK">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#193f3a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>世界動物尋蹤</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./main.js"></script>
+</head>
+<body>
+  <main id="game" aria-label="世界動物尋蹤">
+    <canvas id="world" width="640" height="480" aria-label="考察地圖"></canvas>
+    <aside id="area-banner" class="area-banner" role="status" hidden>
+      <span class="trail-mark" aria-hidden="true"></span><strong id="area-name"></strong>
+    </aside>
+    <button id="menu" class="menu-key" type="button" aria-label="選單" title="選單">
+      <span class="menu-bars" aria-hidden="true"></span>
+    </button>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <div id="dpad" class="dpad" role="group" aria-label="方向鍵">
+      <button type="button" class="north" data-dir="up" aria-label="向上"><i></i></button>
+      <button type="button" class="west" data-dir="left" aria-label="向左"><i></i></button>
+      <span aria-hidden="true" class="hub"><i></i></span>
+      <button type="button" class="east" data-dir="right" aria-label="向右"><i></i></button>
+      <button type="button" class="south" data-dir="down" aria-label="向下"><i></i></button>
+    </div>
+    <div class="action-keys" role="group" aria-label="操作鍵">
+      <button type="button" class="game-key b-key" id="b-button" aria-label="B" title="返回">B</button>
+      <button type="button" class="game-key a-key" id="a-button" aria-label="A" title="確認">A</button>
+    </div>
+    <section id="dialogue" class="dialogue" role="dialog" aria-labelledby="speaker" hidden>
+      <div class="dialogue-paper">
+        <div class="dialogue-main">
+          <img id="wildlife" alt="" hidden>
+          <div class="dialogue-copy">
+            <h1 id="speaker"></h1>
+            <p id="message"></p>
+          </div>
+        </div>
+        <form id="profile-form" class="profile-form" hidden>
+          <label>班別
+            <input id="student-class" type="text" maxlength="8" required autocomplete="off" autocorrect="off" enterkeyhint="next">
+          </label>
+          <label>姓名
+            <input id="student-name" type="text" maxlength="12" required autocomplete="off" autocorrect="off" enterkeyhint="done">
+          </label>
+        </form>
+        <div id="choices" class="choices"></div>
+        <div id="invite-link" class="invite-link" hidden>
+          <label for="room-url">同學邀請連結</label>
+          <input id="room-url" type="url" readonly autocapitalize="off" spellcheck="false">
+        </div>
+      </div>
+    </section>
+    <noscript><p>請在瀏覽器啟用 JavaScript 來開始考察。</p></noscript>
+  </main>
+</body>
+</html>
