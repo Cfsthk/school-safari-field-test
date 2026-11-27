@@ -5,7 +5,7 @@ import './vendor/paho-mqtt-1.1.0.min.js';
 const BROKER = 'wss://broker.emqx.io:8084/mqtt';
 const utf8 = new TextEncoder();
 const decode = new TextDecoder();
-const AREAS = new Set(['littleroot', 'route101', 'oldale']);
+const nativeArea = /^(?:offmap|hoenn-\d{1,2}-\d{1,3})$/;
 const FACINGS = new Set(['up', 'down', 'left', 'right']);
 const ROOM_KEY = 'safari-room-owner-v1';
 const ROOM_PATTERN = /^[a-f0-9]{32}$/;
@@ -13,7 +13,7 @@ const MAX_STUDENTS = 30;
 const LEASE_MS = 25_000;
 const CONNECTION_TIMEOUT = 12_000;
 const PULSE_MS = 3500;
-const DEFAULT_STATE = { area: 'route101', x: 12, y: 12, facing: 'down', observing: false };
+const DEFAULT_STATE = { area: 'offmap', x: 0, y: 0, facing: 'down', observing: false };
 
 function randomCode() {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -26,10 +26,11 @@ function displayText(text, max) {
 }
 
 function validState(s) {
-  if (!s || !AREAS.has(s.area) || !FACINGS.has(s.facing)) return null;
+  if (!s || typeof s.area !== 'string' || !nativeArea.test(s.area) || !FACINGS.has(s.facing)) return null;
   if (![s.x,s.y].every(n => Number.isInteger(n) && n >= 0 && n < 256)) return null;
   return { area:s.area, x:s.x, y:s.y, facing:s.facing, observing:s.observing === true,
-    className:displayText(s.className,8), name:displayText(s.name,12) };
+    className:displayText(s.className,8), name:displayText(s.name,12),
+    look:Number.isInteger(s.look) && s.look>=0 && s.look<239 ? s.look : null };
 }
 
 function validSlot(s) { return Number.isInteger(s) && s >= 0 && s < MAX_STUDENTS; }
@@ -63,10 +64,10 @@ const MESSAGES = {
 async function roomKeys(code) {
   const secret = Uint8Array.from(code.match(/../g), pair => parseInt(pair,16));
   const material = await crypto.subtle.importKey('raw',secret,'HKDF',false,['deriveKey','deriveBits']);
-  const algorithm = info => ({name:'HKDF',hash:'SHA-256',salt:utf8.encode('school-safari/v1'),info:utf8.encode(info)});
+  const algorithm = info => ({name:'HKDF',hash:'SHA-256',salt:utf8.encode('school-safari/native-v1'),info:utf8.encode(info)});
   const key = await crypto.subtle.deriveKey(algorithm('messages'),material,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
   const channel = new Uint8Array(await crypto.subtle.deriveBits(algorithm('channel'),material,128));
-  const topic = 'school-safari/v1/'+Array.from(channel,b=>b.toString(16).padStart(2,'0')).join('');
+  const topic = 'school-safari/native-v1/'+Array.from(channel,b=>b.toString(16).padStart(2,'0')).join('');
   return {key,topic};
 }
 

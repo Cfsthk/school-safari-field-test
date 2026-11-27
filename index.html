@@ -3,56 +3,70 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#193f3a">
+  <meta name="theme-color" content="#192a29">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>世界動物尋蹤</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./style.css">
-  <script type="module" src="./main.js"></script>
+  <link rel="stylesheet" href="./style.css?rom=114">
+  <script type="module" src="./main.js?rom=114"></script>
 </head>
 <body>
   <main id="game" aria-label="世界動物尋蹤">
-    <canvas id="world" width="640" height="480" aria-label="考察地圖"></canvas>
-    <aside id="area-banner" class="area-banner" role="status" hidden>
-      <span class="trail-mark" aria-hidden="true"></span><strong id="area-name"></strong>
-    </aside>
-    <button id="menu" class="menu-key" type="button" aria-label="選單" title="選單">
-      <span class="menu-bars" aria-hidden="true"></span>
-    </button>
+    <div class="screen-area">
+      <div class="screen">
+        <canvas id="world" width="240" height="160" aria-label="遊戲畫面"></canvas>
+        <canvas id="players" width="240" height="160" aria-hidden="true"></canvas>
+      </div>
+    </div>
+
+    <section id="setup" class="setup" aria-labelledby="game-title">
+      <div class="load-panel">
+        <div class="cart-icon" aria-hidden="true"><i></i></div>
+        <h1 id="game-title">世界動物尋蹤</h1>
+        <p>請選擇 <bdi>Emerald-Safari.gba</bdi> 或英文原版《綠寶石》的 <bdi>.gba</bdi> 遊戲檔。</p>
+        <button id="choose-rom" class="insert" type="button">選擇遊戲檔</button>
+        <p id="load-status" role="status" hidden></p>
+      </div>
+    </section>
+    <input id="rom-file" type="file" accept=".gba,application/octet-stream" hidden>
+    <input id="save-file" type="file" accept=".sav,application/octet-stream" hidden>
+
+    <div id="hardware" class="hardware" hidden>
+      <div id="dpad" class="dpad" role="group" aria-label="方向鍵">
+        <button type="button" class="north" data-dir="up" aria-label="向上"><i></i></button>
+        <button type="button" class="west" data-dir="left" aria-label="向左"><i></i></button>
+        <span aria-hidden="true" class="hub"><i></i></span>
+        <button type="button" class="east" data-dir="right" aria-label="向右"><i></i></button>
+        <button type="button" class="south" data-dir="down" aria-label="向下"><i></i></button>
+      </div>
+      <div class="system-keys" role="group" aria-label="系統鍵">
+        <button type="button" data-key="Select" aria-label="Select"><i></i>SELECT</button>
+        <button type="button" data-key="Start" aria-label="Start"><i></i>START</button>
+      </div>
+      <div class="action-keys" role="group" aria-label="操作鍵">
+        <button type="button" class="game-key b-key" id="b-button" data-key="B" aria-label="B">B</button>
+        <button type="button" class="game-key a-key" id="a-button" data-key="A" aria-label="A">A</button>
+      </div>
+      <button id="menu" type="button" class="network-key" aria-label="同學連線與檔案" title="同學連線與檔案">
+        <svg viewBox="0 0 28 24" aria-hidden="true" focusable="false"><path d="M4 4h7v7H4zm12 1h6v6h-6zM2 14h11v7H2zm14 0h7l2 3v4h-9z" fill="currentColor"/></svg>
+      </button>
+    </div>
     <div id="toast" class="toast" role="status" hidden></div>
-    <div id="dpad" class="dpad" role="group" aria-label="方向鍵">
-      <button type="button" class="north" data-dir="up" aria-label="向上"><i></i></button>
-      <button type="button" class="west" data-dir="left" aria-label="向左"><i></i></button>
-      <span aria-hidden="true" class="hub"><i></i></span>
-      <button type="button" class="east" data-dir="right" aria-label="向右"><i></i></button>
-      <button type="button" class="south" data-dir="down" aria-label="向下"><i></i></button>
-    </div>
-    <div class="action-keys" role="group" aria-label="操作鍵">
-      <button type="button" class="game-key b-key" id="b-button" aria-label="B" title="返回">B</button>
-      <button type="button" class="game-key a-key" id="a-button" aria-label="A" title="確認">A</button>
-    </div>
+
     <section id="dialogue" class="dialogue" role="dialog" aria-labelledby="speaker" hidden>
       <div class="dialogue-paper">
-        <div class="dialogue-main">
-          <img id="wildlife" alt="" hidden>
-          <div class="dialogue-copy">
-            <h1 id="speaker"></h1>
-            <p id="message"></p>
-          </div>
-        </div>
+        <h2 id="speaker"></h2>
+        <p id="message"></p>
         <form id="profile-form" class="profile-form" hidden>
-          <label>班別
-            <input id="student-class" type="text" maxlength="8" required autocomplete="off" autocorrect="off" enterkeyhint="next">
-          </label>
-          <label>姓名
-            <input id="student-name" type="text" maxlength="12" required autocomplete="off" autocorrect="off" enterkeyhint="done">
-          </label>
+          <label>班別<input id="student-class" type="text" maxlength="8" required autocomplete="off" autocorrect="off" enterkeyhint="next"></label>
+          <label>姓名<input id="student-name" type="text" maxlength="12" required autocomplete="off" autocorrect="off" enterkeyhint="done"></label>
         </form>
-        <div id="choices" class="choices"></div>
         <div id="invite-link" class="invite-link" hidden>
           <label for="room-url">同學邀請連結</label>
           <input id="room-url" type="url" readonly autocapitalize="off" spellcheck="false">
         </div>
+        <div id="choices" class="choices"></div>
       </div>
     </section>
     <noscript><p>請在瀏覽器啟用 JavaScript 來開始考察。</p></noscript>

@@ -1,0 +1,4 @@
+*.gba
+*.sav
+*.ss?
+.DS_Store

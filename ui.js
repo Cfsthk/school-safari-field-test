@@ -1,35 +1,13 @@
-// Controls shared by touch, keyboard and assistive-technology button activation.
-export function createUI({onDirection, onA, onB, onMenu}) {
+// Native game inputs use the same press/release state for touch and keyboard.
+export function createUI({onDirection,onButton,onMenu,onFile,onSaveFile,onExport,onAudio} = {}) {
   const get = id => document.getElementById(id);
-  const canvas = get('world');
-  const pad = get('dpad');
-  const directionButtons = [...pad.querySelectorAll('button')];
-  const panel = get('dialogue');
-  const buttons = get('choices');
-  const linkBlock = get('invite-link');
-  const input = get('room-url');
-  const bannerElement = get('area-banner');
+  const canvas = get('world'), overlay = get('players');
+  const pad = get('dpad'), hardware = get('hardware');
+  const setupScreen = get('setup');
+  const panel = get('dialogue'), buttons = get('choices');
+  const linkBlock = get('invite-link'), input = get('room-url');
   const toast = get('toast');
-  const heldDirections = new Map();
-  const touches = new Set();
-  let active = null;
-  let selected = -1;
-  let bannerExit;
-  let bannerHide;
-  let toastHide;
-
-  function banner(name) {
-    clearTimeout(bannerExit);
-    clearTimeout(bannerHide);
-    get('area-name').textContent = name;
-    bannerElement.classList.remove('exit');
-    bannerElement.hidden = false;
-    bannerExit = setTimeout(() => {
-      bannerElement.classList.add('exit');
-      bannerHide = setTimeout(() => { bannerElement.hidden = true; }, 240);
-    }, 1800);
-  }
-
+  let active = null, selected = -1, toastHide;
   function notify(text) {
     clearTimeout(toastHide);
     toast.textContent = text;
@@ -65,15 +43,6 @@ export function createUI({onDirection, onA, onB, onMenu}) {
     get('speaker').hidden = !view.title;
     get('message').textContent = view.text || '';
     get('message').hidden = !view.text;
-    const image = get('wildlife');
-    if (view.image) {
-      image.src = view.image;
-      image.alt = view.imageAlt || '';
-      image.hidden = false;
-    } else {
-      image.hidden = true;
-      image.removeAttribute('src');
-    }
     choices.forEach((choice, index) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -116,119 +85,161 @@ export function createUI({onDirection, onA, onB, onMenu}) {
   }
 
   function back() {
-    if (!active) return onB?.();
-    const handler = active.onBack;
+    const handler = active?.onBack;
     close();
     handler?.();
   }
 
-  function confirm() {
-    if (!active) return onA?.();
-    if (selected >= 0) buttons.children[selected]?.click();
-  }
-
   function menu() {
-    // Let the current interaction apply its own cancel rules (e.g. an encounter).
+    releaseAll();
     if (active) back();
-    else onMenu?.();
+    else if (!hardware.hidden) onMenu?.();
   }
 
-  function updateHeld() {
-    const held = new Set(heldDirections.values());
-    for (const button of directionButtons) button.classList.toggle('held', held.has(button.dataset.dir));
+  function ready() {
+    setupScreen.hidden = true;
+    hardware.hidden = false;
+    get('load-status').hidden = true;
   }
 
-  function release(id) {
-    const old = heldDirections.get(id);
-    if (!old) return;
-    heldDirections.delete(id);
-    if (!active && ![...heldDirections.values()].includes(old)) onDirection?.(old, false);
-    updateHeld();
+  function setup(text = '') {
+    releaseAll();
+    close();
+    hardware.hidden = true;
+    setupScreen.hidden = false;
+    get('load-status').textContent = text;
+    get('load-status').hidden = !text;
   }
 
-  function press(id, dir) {
-    if (heldDirections.get(id) === dir) return;
-    release(id);
-    if (!dir) return;
-    const alreadyHeld = [...heldDirections.values()].includes(dir);
-    heldDirections.set(id, dir);
-    updateHeld();
-    if (active) moveSelection(dir);
-    else if (!alreadyHeld) onDirection?.(dir, true);
+  function filePicker(id) {
+    releaseAll();
+    const picker = get(id);
+    picker.value = '';
+    picker.click();
+  }
+  const pickROM = () => filePicker('rom-file');
+  const pickSave = () => filePicker('save-file');
+  const exportSave = () => onExport?.();
+
+  // iOS can suspend audio again after returning from another application.
+  function audioGesture() {
+    try { Promise.resolve(onAudio?.()).catch(() => {}); } catch { /* silent mode remains playable */ }
+  }
+  document.addEventListener('pointerdown', audioGesture, {capture:true, passive:true});
+  document.addEventListener('keydown', audioGesture, {capture:true, passive:true});
+  get('choose-rom').addEventListener('click',pickROM);
+  for (const [id,callback] of [['rom-file',onFile],['save-file',onSaveFile]]) {
+    get(id).addEventListener('change',e => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (file) callback?.(file);
+    });
   }
 
-  function releaseAll() {
-    touches.clear();
-    for (const id of [...heldDirections.keys()]) release(id);
-    get('a-button').classList.remove('held');
-    get('b-button').classList.remove('held');
+  const held = new Map();
+  const nativeDown = new Map();
+  const padTouches = new Set();
+  const elements = new Map([...hardware.querySelectorAll('[data-dir],[data-key]')]
+    .map(el=>[el.dataset.dir || el.dataset.key, el]));
+  const directions = new Set(['left','right','up','down']);
+  function dispatch(code,pressed) {
+    if (directions.has(code)) onDirection?.(code,pressed);
+    else onButton?.(code,pressed);
   }
-
-  function padDirection(e) {
-    const rect = pad.getBoundingClientRect();
-    const dx = (e.clientX - rect.left) / rect.width - .5;
-    const dy = (e.clientY - rect.top) / rect.height - .5;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < .12 || Math.max(Math.abs(dx), Math.abs(dy)) > .62) return null;
-    return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+  function endNative(code) {
+    const entry = nativeDown.get(code);
+    if (!entry) return;
+    clearTimeout(entry.timer);
+    nativeDown.delete(code);
+    elements.get(code)?.classList.remove('held');
+    dispatch(code,false);
   }
-
-  pad.addEventListener('pointerdown', e => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    pad.setPointerCapture(e.pointerId);
-    touches.add(e.pointerId);
-    press(e.pointerId, padDirection(e));
-  });
-  pad.addEventListener('pointermove', e => {
-    if (touches.has(e.pointerId)) press(e.pointerId, padDirection(e));
-  });
-  function releaseTouch(e) {
-    touches.delete(e.pointerId);
-    release(e.pointerId);
+  function release(id,force = false) {
+    const code = held.get(id);
+    if (!code) return;
+    held.delete(id);
+    if ([...held.values()].includes(code)) return;
+    const entry = nativeDown.get(code);
+    if (!entry) { elements.get(code)?.classList.remove('held'); return; }
+    // A tap shorter than a GBA video frame must still register.
+    const delay = force ? 0 : Math.max(0,34 - (performance.now() - entry.at));
+    if (delay) entry.timer = setTimeout(()=>endNative(code),delay);
+    else endNative(code);
   }
-  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) pad.addEventListener(type, releaseTouch);
-  // Browsers synthesize detail=0 clicks for keyboard and VoiceOver.
-  for (const button of directionButtons) button.addEventListener('click', e => {
-    if (e.detail === 0) {
-      press('accessible', button.dataset.dir);
-      release('accessible');
-    }
-  });
-  get('a-button').addEventListener('click', confirm);
-  get('b-button').addEventListener('click', back);
-  get('menu').addEventListener('click', menu);
-  window.addEventListener('blur', releaseAll);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
-
-  const keys = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right'};
-  document.addEventListener('keydown', e => {
-    if (e.ctrlKey || e.metaKey || e.altKey || !(e.target instanceof Element) || e.target.matches('input, textarea, select, [contenteditable="true"]')) return;
-    if (keys[e.key]) {
-      e.preventDefault();
-      if (!e.repeat) press(e.code, keys[e.key]);
-      else if (active) moveSelection(keys[e.key]);
+  function press(id,code) {
+    if (held.get(id) === code) return;
+    release(id,true);
+    if (!code || hardware.hidden) return;
+    held.set(id,code);
+    elements.get(code)?.classList.add('held');
+    if (active) {
+      if (directions.has(code)) moveSelection(code);
+      else if (code === 'B') back();
+      else if (code === 'A' && selected >= 0) buttons.children[selected]?.click();
       return;
     }
-    const key = e.key.toLowerCase();
-    const nativeButton = e.target.closest('button');
-    if (nativeButton && (key === 'enter' || key === ' ')) return;
-    if (!['a','z',' ','enter','b','x','escape','m'].includes(key)) return;
-    e.preventDefault();
-    if (e.repeat) return;
-    if (key === 'm') menu();
-    else if (key === 'b' || key === 'x' || key === 'escape') {
-      get('b-button').classList.add('held'); back();
-    } else {
-      get('a-button').classList.add('held'); confirm();
+    const old = nativeDown.get(code);
+    if (old) {
+      clearTimeout(old.timer);
+      old.at = performance.now();
+      return;
     }
+    nativeDown.set(code,{at:performance.now()});
+    dispatch(code,true);
+  }
+  function releaseAll() {
+    padTouches.clear();
+    held.clear();
+    for (const code of nativeDown.keys()) endNative(code);
+    for (const el of elements.values()) el.classList.remove('held');
+  }
+  function padDirection(e) {
+    const r=pad.getBoundingClientRect();
+    const dx=(e.clientX-r.left)/r.width-.5, dy=(e.clientY-r.top)/r.height-.5;
+    const edge=Math.max(Math.abs(dx),Math.abs(dy));
+    if (edge<.12 || edge>.62) return null;
+    return Math.abs(dx)>Math.abs(dy) ? (dx>0?'right':'left') : (dy>0?'down':'up');
+  }
+  pad.addEventListener('pointerdown',e=>{
+    if(e.button!==0) return;
+    e.preventDefault();pad.setPointerCapture(e.pointerId);padTouches.add(e.pointerId);
+    press(e.pointerId,padDirection(e));
   });
-  document.addEventListener('keyup', e => {
-    if (keys[e.key]) release(e.code);
-    get('a-button').classList.remove('held');
-    get('b-button').classList.remove('held');
+  pad.addEventListener('pointermove',e=>{ if(padTouches.has(e.pointerId))press(e.pointerId,padDirection(e)); });
+  for (const type of ['pointerup','pointercancel','lostpointercapture']) {
+    pad.addEventListener(type,e=>{padTouches.delete(e.pointerId);release(e.pointerId,type==='pointercancel');});
+  }
+  for (const [code,el] of elements) {
+    if (!directions.has(code)) {
+      el.addEventListener('pointerdown',e=>{
+        if(e.button!==0)return;
+        e.preventDefault();el.setPointerCapture(e.pointerId);press(e.pointerId,code);
+      });
+      for (const type of ['pointerup','pointercancel','lostpointercapture']) {
+        el.addEventListener(type,e=>release(e.pointerId,type==='pointercancel'));
+      }
+    }
+    // Keyboard and accessibility APIs can activate the button without pointer events.
+    el.addEventListener('click',e=>{if(e.detail===0){press('accessible',code);release('accessible');}});
+  }
+  get('menu').addEventListener('click',menu);
+  window.addEventListener('blur',releaseAll);
+  window.addEventListener('pagehide',releaseAll);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)releaseAll();});
+  const keyCodes={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',
+    KeyA:'A',KeyZ:'A',Space:'A',KeyB:'B',KeyX:'B',Escape:'B',Enter:'Start',ShiftLeft:'Select',ShiftRight:'Select'};
+  document.addEventListener('keydown',e=>{
+    if (hardware.hidden || e.ctrlKey||e.metaKey||e.altKey||e.target.closest?.('input, textarea, select, [contenteditable="true"]'))return;
+    if (e.code==='KeyM'){e.preventDefault();if(!e.repeat)menu();return;}
+    if (e.target.closest?.('button') && (e.code==='Enter'||e.code==='Space'))return;
+    const code=active && e.code==='Enter' ? 'A' : keyCodes[e.code];
+    if (!code)return;
+    e.preventDefault();
+    if(!e.repeat)press(e.code,code);
+    else if(active && directions.has(code))moveSelection(code);
   });
-  document.addEventListener('contextmenu', e => { if (e.target.closest('.dpad, .action-keys, canvas')) e.preventDefault(); });
-
+  document.addEventListener('keyup',e=>release(e.code));
+  document.addEventListener('contextmenu',e=>{if(e.target.closest?.('.hardware,canvas'))e.preventDefault();});
   function invite(url, onBack) {
     const href = new URL(url, window.location.href).href;
     const selectLink = () => {
@@ -295,5 +306,6 @@ export function createUI({onDirection, onA, onB, onMenu}) {
     saveProfile = save;
   }
 
-  return {canvas, banner, notify, show, close, isOpen: () => Boolean(active), invite, profile};
+  return {canvas,overlay,ready,setup,pickROM,pickSave,exportSave,notify,show,close,
+    isOpen:()=> Boolean(active),invite,profile};
 }
