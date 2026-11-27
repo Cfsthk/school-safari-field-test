@@ -4,6 +4,8 @@ import {colourSprite} from './daylight.js';
 // This layer only adds the names and the visiting students' cartridge sprite frames.
 const GBA_ROM = 0x08000000;
 const MAIN = 0x030022c0, FIELD = 0x08085e5c, BATTLE = 0x08038420;
+const FIELD_MESSAGE = 0x020375bc, MENU_CALLBACK = 0x03005df4, TASKS = 0x03005e00;
+const START_MENU_INPUT = 0x0809fac5, SHOW_START_MENU = 0x0809fa35, SAVE_DIALOG = 0x0809fe45;
 const SAVE_PTR = 0x03005d8c, OBJECTS = 0x02037350, AVATAR = 0x02037590;
 const SPRITES = 0x02020630, OFFSET_X = 0x02021bbc, OFFSET_Y = 0x02021bbe;
 const CAMERA = 0x03005dd0, TOTAL_X = 0x03005dec, TOTAL_Y = 0x03005de8;
@@ -84,11 +86,32 @@ export function createRomWorld({read8,read16,read32,rom,daylight}) {
   const art=cartridgeArt(rom);
   let lastField=null;
   const motion=new Map();
+  function taskActive(callback) {
+    for(let i=0;i<16;i++) {
+      const task=TASKS+i*40;
+      if(b(task+4) && w(task)===callback) return true;
+    }
+    return false;
+  }
+  function dialogueFrameVisible() {
+    if(!(h(0x04000000)&0x100)) return false;
+    // The text printer goes idle while waiting for A. Emerald keeps the two
+    // upper corners of its dialogue window in columns 0 and 29 of BG0 row 14.
+    const mapBase=0x06000000+((h(0x04000008)>>>8)&31)*0x800;
+    const row=mapBase+14*32*2;
+    return (h(row)&0x3ff)===0x201 && (h(row+29*2)&0x3ff)===0x206;
+  }
   function sample() {
     const cb=w(MAIN+4)&~1;
     const observing=Boolean(cb===BATTLE || (b(MAIN+0x439)&2));
+    // The input callback remains in RAM after closing Start. Its live task
+    // distinguishes the actual menu from native dialogue or free movement.
+    const menuCallback=cb===FIELD ? w(MENU_CALLBACK) : 0;
+    const startMenu=menuCallback===START_MENU_INPUT && taskActive(SHOW_START_MENU);
+    const fieldMessage=cb===FIELD && (b(FIELD_MESSAGE)!==0 || dialogueFrameVisible());
+    const bottomDialogue=observing || fieldMessage || (menuCallback===SAVE_DIALOG && taskActive(SHOW_START_MENU));
     function hidden() {
-      return {visible:false, observing, state:lastField?{...lastField,observing}:null};
+      return {visible:false, observing, startMenu, bottomDialogue, state:lastField?{...lastField,observing}:null};
     }
     if (cb!==FIELD || observing) return hidden();
     const save=w(SAVE_PTR);
@@ -103,7 +126,7 @@ export function createRomWorld({read8,read16,read32,rom,daylight}) {
     const facing=directionNames[b(obj+24)&15] || 'down';
     lastField={area:'hoenn-'+group+'-'+map,x,y,facing,look,observing:false};
     // CB2_Overworld also owns scripts, fades, NPC text and the native Start menu.
-    if(b(0x03000f2c) || b(0x03000e38)!==2 || b(0x020375bc) || (b(0x02037fdb)&0x80) ||
+    if(startMenu || b(0x03000f2c) || b(0x03000e38)!==2 || fieldMessage || (b(0x02037fdb)&0x80) ||
         b(obj+1)&0x20 || (b(sprite+0x3e)&5)!==1) return hidden();
     const dx=sh(OFFSET_X),dy=sh(OFFSET_Y);
     const cameraX=(7-sh(save))*16+8+cameraRemainder(sw(CAMERA+16))+s16(dx-sh(TOTAL_X));
@@ -111,14 +134,10 @@ export function createRomWorld({read8,read16,read32,rom,daylight}) {
     const localX=sh(sprite+32)+sh(sprite+36)+dx;
     const localY=sh(sprite+34)+sh(sprite+38)+dy-s8(b(sprite+41));
     const anim=b(sprite+42),command=b(sprite+43);
-    return {visible:true,observing:false,state:lastField,cameraX,cameraY,localX,localY,
+    return {visible:true,observing:false,startMenu,bottomDialogue,state:lastField,cameraX,cameraY,localX,localY,
       localHeight:-2*s8(b(sprite+41)),localStep:anim>=4&&anim<8?command%4:-1,
       // Native area-name window has a separate small tilemap above visiting students.
-      routeSign:b(0x0203cd8d)!==0xff && isNamePopupAlive()};
-  }
-  function isNamePopupAlive() {
-    for(let i=0;i<16;i++){const t=0x03005e00+i*40;if (b(t+4) && (w(t)&~1)===0x080d487c)return true;}
-    return false;
+      routeSign:b(0x0203cd8d)!==0xff && taskActive(0x080d487d)};
   }
   function resetMotion() {motion.clear();}
   function remotePosition(p,now) {

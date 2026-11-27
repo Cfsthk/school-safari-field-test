@@ -1,13 +1,15 @@
 // Native game inputs use the same press/release state for touch and keyboard.
-export function createUI({onDirection,onButton,onMenu,onFile,onSaveFile,onExport,onAudio} = {}) {
+export function createUI({onDirection,onButton,onTools,onFile,onSaveFile,onExport,onAudio} = {}) {
   const get = id => document.getElementById(id);
   const canvas = get('world'), overlay = get('players');
   const pad = get('dpad'), hardware = get('hardware');
+  const menuButton = get('menu'), webTools = get('web-tools');
+  const portrait = matchMedia('(orientation: portrait)');
   const setupScreen = get('setup');
   const panel = get('dialogue'), buttons = get('choices');
   const linkBlock = get('invite-link'), input = get('room-url');
   const toast = get('toast');
-  let active = null, selected = -1, toastHide;
+  let active = null, selected = -1, toastHide, nativeMenuOpen = false;
   function notify(text) {
     clearTimeout(toastHide);
     toast.textContent = text;
@@ -23,6 +25,7 @@ export function createUI({onDirection,onButton,onMenu,onFile,onSaveFile,onExport
     linkBlock.hidden = true;
     get('profile-form').hidden = true;
     buttons.replaceChildren();
+    webTools.hidden = !nativeMenuOpen;
   }
 
   function pointTo(index, ensureVisible = false) {
@@ -59,6 +62,7 @@ export function createUI({onDirection,onButton,onMenu,onFile,onSaveFile,onExport
       buttons.append(button);
     });
     pointTo(choices.findIndex(choice => !choice.disabled));
+    webTools.hidden = true;
     panel.hidden = false;
     panel.querySelector('.dialogue-paper').scrollTop = 0;
   }
@@ -93,7 +97,23 @@ export function createUI({onDirection,onButton,onMenu,onFile,onSaveFile,onExport
   function menu() {
     releaseAll();
     if (active) back();
-    else if (!hardware.hidden) onMenu?.();
+    else tapNative('Start');
+  }
+
+  function fieldState(startMenu, bottomDialogue) {
+    if (nativeMenuOpen !== startMenu) {
+      nativeMenuOpen = startMenu;
+      webTools.hidden = !startMenu || Boolean(active);
+      menuButton.setAttribute('aria-expanded',String(startMenu));
+    }
+    if (hardware.classList.contains('reading') !== bottomDialogue) {
+      hardware.classList.toggle('reading',bottomDialogue);
+    }
+  }
+
+  function resumeField() {
+    close();
+    if (nativeMenuOpen) tapNative('B');
   }
 
   function ready() {
@@ -104,6 +124,7 @@ export function createUI({onDirection,onButton,onMenu,onFile,onSaveFile,onExport
 
   function setup(text = '') {
     releaseAll();
+    fieldState(false,false);
     close();
     hardware.hidden = true;
     setupScreen.hidden = false;
@@ -193,9 +214,16 @@ export function createUI({onDirection,onButton,onMenu,onFile,onSaveFile,onExport
     for (const code of nativeDown.keys()) endNative(code);
     for (const el of elements.values()) el.classList.remove('held');
   }
+  function tapNative(code) {
+    press('menu-tap',code);
+    release('menu-tap');
+  }
   function padDirection(e) {
     const r=pad.getBoundingClientRect();
-    const dx=(e.clientX-r.left)/r.width-.5, dy=(e.clientY-r.top)/r.height-.5;
+    const x=(e.clientX-r.left)/r.width-.5, y=(e.clientY-r.top)/r.height-.5;
+    // The whole game screen turns clockwise in portrait. Slide gestures stay
+    // aligned with the arrows painted on it.
+    const dx=portrait.matches ? y : x, dy=portrait.matches ? -x : y;
     const edge=Math.max(Math.abs(dx),Math.abs(dy));
     if (edge<.12 || edge>.62) return null;
     return Math.abs(dx)>Math.abs(dy) ? (dx>0?'right':'left') : (dy>0?'down':'up');
@@ -222,7 +250,9 @@ export function createUI({onDirection,onButton,onMenu,onFile,onSaveFile,onExport
     // Keyboard and accessibility APIs can activate the button without pointer events.
     el.addEventListener('click',e=>{if(e.detail===0){press('accessible',code);release('accessible');}});
   }
-  get('menu').addEventListener('click',menu);
+  menuButton.addEventListener('click',menu);
+  webTools.addEventListener('click',()=>{ if(nativeMenuOpen && !active)onTools?.(); });
+  portrait.addEventListener('change',releaseAll);
   window.addEventListener('blur',releaseAll);
   window.addEventListener('pagehide',releaseAll);
   document.addEventListener('visibilitychange',()=>{if(document.hidden)releaseAll();});
@@ -306,6 +336,6 @@ export function createUI({onDirection,onButton,onMenu,onFile,onSaveFile,onExport
     saveProfile = save;
   }
 
-  return {canvas,overlay,ready,setup,pickROM,pickSave,exportSave,notify,show,close,
+  return {canvas,overlay,ready,setup,fieldState,resumeField,pickROM,pickSave,exportSave,notify,show,close,
     isOpen:()=> Boolean(active),invite,profile};
 }

@@ -1,6 +1,6 @@
-import {createUI} from './ui.js?rom=114';
+import {createUI} from './ui.js?screen=1';
 import {createEmulator} from './emulator.js?cycle=1';
-import {createRomWorld} from './rom-world.js?cycle=1';
+import {createRomWorld} from './rom-world.js?screen=1';
 import {createPresence} from './presence.js?rom=114';
 import {students} from './students.js';
 import {demonstration} from './demonstration.js';
@@ -23,7 +23,7 @@ let lastSample=0;
 const ui=createUI({
   onDirection:(key,down)=>game?.setKey(key,down),
   onButton:(key,down)=>game?.setKey(key,down),
-  onMenu:toolsMenu, onFile:selectCartridge, onSaveFile:importBattery, onExport:exportBattery,
+  onTools:toolsMenu, onFile:selectCartridge, onSaveFile:importBattery, onExport:exportBattery,
   onAudio:()=>game?.unlockAudio()
 });
 const option=(label,run)=>({label,run});
@@ -35,6 +35,7 @@ const connection=createPresence({
 });
 
 function close() { panel='';ui.close(); }
+function resumeField() { panel='';ui.resumeField(); }
 function menu(name,options) { panel=name;ui.show({...options,onBack:options.onBack || close}); }
 function errorText(error) { return error instanceof Error ? error.message : '載入時發生問題，請再試一次。'; }
 function unavailableStorage() {
@@ -57,6 +58,7 @@ function frame(core) {
   if (!world || core!==game || now-lastSample<28) return;
   lastSample=now;
   const sample=world.sample();
+  ui.fieldState(sample.startMenu,sample.bottomDialogue);
   latest=sample.state ?? noPosition;
   if(shared) connection.update({...latest,...display});
   const classmates=shared ? peers.map(p=>({...p,className:p.className || students[p.slot].className,name:p.name || students[p.slot].name}))
@@ -162,7 +164,7 @@ async function importBattery(file) {
   else await apply();
 }
 function toolsMenu() {
-  menu('tools',{title:'連線與檔案',choices:[option('同學連線',roomMenu),option('存檔管理',filesMenu),option('回到遊戲',close)]});
+  menu('tools',{title:'連線與檔案',choices:[option('同學連線',roomMenu),option('存檔管理',filesMenu),option('回到遊戲',resumeField)]});
 }
 function filesMenu() {
   menu('files',{title:'存檔管理',text:'考察進度會自動儲存在這部裝置。重新登入時會在最近的醫護站繼續。可匯出 .sav 到另一部裝置。',
@@ -190,7 +192,7 @@ function roomMenu() {
       },roomMenu);
     })];
   if(networkStatus==='unavailable')actions.push(option('重試連線',()=>{connection.leave();connection.join(invite);roomMenu();}));
-  actions.push(option('回到遊戲',close),option('離開房間',leave));
+  actions.push(option('回到遊戲',resumeField),option('離開房間',leave));
   menu('room',{title:'同學連線',text:statuses[networkStatus],choices:actions,onBack:toolsMenu});
 }
 function enterRoom() {

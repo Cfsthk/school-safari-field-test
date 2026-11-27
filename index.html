@@ -8,8 +8,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>世界動物尋蹤</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./style.css?rom=114">
-  <script type="module" src="./main.js?auto=1"></script>
+  <link rel="stylesheet" href="./style.css?screen=1">
+  <script type="module" src="./main.js?screen=1"></script>
 </head>
 <body>
   <main id="game" aria-label="世界動物尋蹤">
@@ -17,6 +17,21 @@
       <div class="screen">
         <canvas id="world" width="240" height="160" aria-label="遊戲畫面"></canvas>
         <canvas id="players" width="240" height="160" aria-hidden="true"></canvas>
+        <div id="hardware" class="hardware" hidden>
+          <div id="dpad" class="dpad" role="group" aria-label="方向鍵">
+            <button type="button" class="north" data-dir="up" aria-label="向上"><i></i></button>
+            <button type="button" class="west" data-dir="left" aria-label="向左"><i></i></button>
+            <span aria-hidden="true" class="hub"><i></i></span>
+            <button type="button" class="east" data-dir="right" aria-label="向右"><i></i></button>
+            <button type="button" class="south" data-dir="down" aria-label="向下"><i></i></button>
+          </div>
+          <div class="action-keys" role="group" aria-label="操作鍵">
+            <button type="button" class="game-key b-key" id="b-button" data-key="B" aria-label="B">B</button>
+            <button type="button" class="game-key a-key" id="a-button" data-key="A" aria-label="A">A</button>
+            <button type="button" class="menu-key" id="menu" aria-expanded="false">選單</button>
+          </div>
+          <button type="button" class="web-tools" id="web-tools" aria-haspopup="dialog" aria-controls="dialogue" hidden>同學連線與檔案</button>
+        </div>
       </div>
     </div>
 
@@ -32,26 +47,6 @@
     <input id="rom-file" type="file" accept=".gba,application/octet-stream" hidden>
     <input id="save-file" type="file" accept=".sav,application/octet-stream" hidden>
 
-    <div id="hardware" class="hardware" hidden>
-      <div id="dpad" class="dpad" role="group" aria-label="方向鍵">
-        <button type="button" class="north" data-dir="up" aria-label="向上"><i></i></button>
-        <button type="button" class="west" data-dir="left" aria-label="向左"><i></i></button>
-        <span aria-hidden="true" class="hub"><i></i></span>
-        <button type="button" class="east" data-dir="right" aria-label="向右"><i></i></button>
-        <button type="button" class="south" data-dir="down" aria-label="向下"><i></i></button>
-      </div>
-      <div class="system-keys" role="group" aria-label="系統鍵">
-        <button type="button" data-key="Select" aria-label="Select"><i></i>SELECT</button>
-        <button type="button" data-key="Start" aria-label="Start"><i></i>START</button>
-      </div>
-      <div class="action-keys" role="group" aria-label="操作鍵">
-        <button type="button" class="game-key b-key" id="b-button" data-key="B" aria-label="B">B</button>
-        <button type="button" class="game-key a-key" id="a-button" data-key="A" aria-label="A">A</button>
-      </div>
-      <button id="menu" type="button" class="network-key" aria-label="同學連線與檔案" title="同學連線與檔案">
-        <svg viewBox="0 0 28 24" aria-hidden="true" focusable="false"><path d="M4 4h7v7H4zm12 1h6v6h-6zM2 14h11v7H2zm14 0h7l2 3v4h-9z" fill="currentColor"/></svg>
-      </button>
-    </div>
     <div id="toast" class="toast" role="status" hidden></div>
 
     <section id="dialogue" class="dialogue" role="dialog" aria-labelledby="speaker" hidden>

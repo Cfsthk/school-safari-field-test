@@ -39,3 +39,32 @@ test('native menu and encounter conceal tags, preserving the last sighting site'
   put(0x030022c4,0x08085e5d,4);put(0x030026f9,0);put(0x03000f2c,0);put(save+4,7);put(save+5,3);
   assert.equal(world.sample().state.area,'hoenn-7-3');
 });
+test('touch controls follow active Start, text and battle screens, including after closing Start',()=>{
+  const {world,put}=field();
+  const task=0x03005e00+3*40;
+  put(0x03005df4,0x0809fac5,4);
+  put(task,0x0809fa35,4);
+  assert.equal(world.sample().startMenu,false);
+  put(task+4,1);
+  assert.equal(world.sample().startMenu,true);
+  assert.equal(world.sample().bottomDialogue,false);
+  put(0x03005df4,0x0809fe45,4); // Native save confirmation in the same task
+  assert.equal(world.sample().startMenu,false);
+  assert.equal(world.sample().bottomDialogue,true);
+  put(task+4,0);
+  assert.equal(world.sample().bottomDialogue,false);
+  put(0x020375bc,1);
+  assert.equal(world.sample().bottomDialogue,true);
+  put(0x020375bc,0); // Doctor's text is still on screen while waiting for A
+  put(0x04000000,0x100,2);
+  put(0x04000008,31<<8,2);
+  const frame=0x0600f800+14*32*2;
+  put(frame,0xf201,2);
+  assert.equal(world.sample().bottomDialogue,false);
+  put(frame+29*2,0xf206,2);
+  assert.equal(world.sample().bottomDialogue,true);
+  put(0x030022c4,0x08038421,4);
+  assert.equal(world.sample().bottomDialogue,true);
+  put(0x030022c4,0x081aad5d,4); // Outside the field, ignore stale dialogue memory
+  assert.equal(world.sample().bottomDialogue,false);
+});
