@@ -1,16 +1,22 @@
 import {createUI} from './ui.js?rom=114';
-import {createEmulator} from './emulator.js';
-import {createRomWorld} from './rom-world.js';
+import {createEmulator} from './emulator.js?cycle=1';
+import {createRomWorld} from './rom-world.js?cycle=1';
 import {createPresence} from './presence.js?rom=114';
 import {students} from './students.js';
 import {demonstration} from './demonstration.js';
 import {EDITED_SHA, prepareCartridge, digest, batteryBytes} from './cartridge.js';
-import {readLocal, writeLocal, writeBattery} from './library.js';
+import {readLocal, writeLocal, writeBattery} from './library.js?auto=1';
+import {captureAutosave,readBatteryLocation,warpBatteryForLogin} from './native-save.js';
+import {createClinicLocator} from './clinics.js';
+import {createProgressWriter,readProgress} from './progress.js';
+import {createSchoolClock} from './shared-clock.js';
 import {schoolCartridgeURL} from './school-config.js';
 
+const clock=createSchoolClock();
+void clock.sync();
 const noPosition = {area:'offmap',x:0,y:0,facing:'down',observing:false,look:null};
 let game, world, cartridge, pendingBoot = false, bootSerial = 0, latest = noPosition;
-let revision=0, lastBattery, lastCheck=0, pendingWrite, writeConflict=false, storageNotice=false;
+let progress, lastCheck=0, storageNotice=false, locateClinic;
 let mySlot=0, display={}, peers=[], networkStatus='offline', shared=false, demo=true, panel='', invite=null;
 let lastSample=0;
 
@@ -34,22 +40,17 @@ function errorText(error) { return error instanceof Error ? error.message : '載
 function unavailableStorage() {
   if (!storageNotice) { storageNotice=true;ui.notify('瀏覽器未能保存檔案。可從「存檔管理」匯出 .sav。'); }
 }
-function sameBytes(a,b) {
-  if(!a || !b || a.length!==b.length) return false;
-  for(let i=0;i<a.length;i++) if(a[i]!==b[i])return false;
-  return true;
+function checkpoint() {
+  if(!game || pendingBoot || !progress) return;
+  const position=latest.area==='offmap'?null:latest;
+  const bytes=captureAutosave(game,{previous:progress.bytes,location:position});
+  return progress.offer(bytes);
 }
-async function saveIfChanged() {
-  if(!game || pendingBoot || pendingWrite || writeConflict) return pendingWrite;
-  const bytes=batteryBytes(game.exportSave());
-  if(!bytes || sameBytes(bytes,lastBattery)) return;
-  pendingWrite=writeBattery(bytes,revision).then(next=>{
-    if(next===null) {
-      writeConflict=true;
-      ui.notify('另一個分頁已儲存遊戲。請匯出此分頁的 .sav 以保留兩邊進度。');
-    } else { revision=next;lastBattery=bytes; }
-  }).catch(unavailableStorage).finally(()=>{pendingWrite=null;});
-  return pendingWrite;
+function suspend() {
+  if(!game || pendingBoot)return;
+  checkpoint();
+  progress?.suspend();
+  game.pause();
 }
 function frame(core) {
   const now=performance.now();
@@ -61,24 +62,31 @@ function frame(core) {
   const classmates=shared ? peers.map(p=>({...p,className:p.className || students[p.slot].className,name:p.name || students[p.slot].name}))
     : demo && sample.visible ? demonstration(latest.area,now) : [];
   world.draw(ui.overlay,{sample,local:{...students[mySlot],...display},peers:classmates,time:now});
-  if(now-lastCheck>850) { lastCheck=now; void saveIfChanged(); }
+  if(now-lastCheck>=700) { lastCheck=now; void checkpoint(); void clock.sync(); }
 }
 async function start(bytes,batteryRecord) {
-  await pendingWrite;
+  await progress?.flush();
   game?.dispose();game=null;world=null;
   latest=noPosition;lastSample=0;
   if(shared) connection.update({...latest,...display});
+  if(cartridge!==bytes || !locateClinic)locateClinic=createClinicLocator(bytes);
   const battery=batteryRecord?.bytes;
-  game=await createEmulator({rom:bytes,save:battery,canvas:ui.canvas,onFrame:frame});
-  world=createRomWorld({rom:bytes,read8:game.read8,read16:game.read16,read32:game.read32});
-  revision=batteryRecord?.revision ?? 0;lastBattery=battery;writeConflict=false;
+  const position=battery && readBatteryLocation(battery);
+  const clinic=position && locateClinic(position,position.fallback,{summitUnlocked:position.summitUnlocked});
+  const loginBattery=clinic ? warpBatteryForLogin(battery,clinic) : battery;
+  game=await createEmulator({rom:bytes,save:loginBattery,canvas:ui.canvas,onFrame:frame,worldTime:clock.now});
+  world=createRomWorld({rom:bytes,read8:game.read8,read16:game.read16,read32:game.read32,daylight:game.daylight});
+  progress=createProgressWriter(batteryRecord,{
+    onConflict:()=>ui.notify('另一個分頁已儲存遊戲。可匯出此分頁的 .sav，保留兩邊進度。'),
+    onError:unavailableStorage
+  });
   cartridge=bytes;
   ui.ready();close();
   game.start();
   if (!shared && location.hash.startsWith('#room=')) enterRoom();
 }
 async function loadLocalBattery() {
-  try { return await readLocal('battery'); } catch { return null; }
+  try { return await readProgress(); } catch { return null; }
 }
 async function selectCartridge(file) {
   if(pendingBoot) return;
@@ -120,8 +128,9 @@ async function restore() {
   }
 }
 function exportBattery() {
-  const bytes=batteryBytes(game?.exportSave() ?? []) ?? lastBattery;
-  if(!bytes) { ui.notify('請先在遊戲內按 START，選「儲存」。');return; }
+  checkpoint();
+  const bytes=progress?.bytes ?? batteryBytes(game?.exportSave() ?? []);
+  if(!bytes) { ui.notify('遊戲正在準備首次存檔，請稍後再試。');return; }
   const url=URL.createObjectURL(new Blob([bytes],{type:'application/octet-stream'}));
   const link=document.createElement('a');
   link.href=url;link.download='Emerald-Safari.sav';link.click();
@@ -131,12 +140,12 @@ async function importBattery(file) {
   if(!game || pendingBoot)return;
   if(![131072,131088].includes(file.size)) {ui.notify('請選擇綠寶石的 128 KB .sav 檔案。');return;}
   const bytes=batteryBytes(await file.arrayBuffer());
-  if(!bytes) {ui.notify('這個檔案沒有完整的綠寶石遊戲紀錄。');return;}
+  if(!bytes || !readBatteryLocation(bytes)) {ui.notify('這個檔案沒有完整的綠寶石遊戲紀錄。');return;}
   const apply=async()=>{
     if(pendingBoot)return;
-    pendingBoot=true;game.pause();
+    checkpoint();pendingBoot=true;game.pause();
     try {
-      await pendingWrite;
+      await progress?.flush();
       const old=await loadLocalBattery();
       const next=await writeBattery(bytes,old?.revision ?? 0);
       if(next===null)throw new Error('另一個分頁剛更新存檔，請再試一次。');
@@ -147,7 +156,7 @@ async function importBattery(file) {
       else ui.setup(errorText(error));
     } finally {pendingBoot=false;}
   };
-  if(lastBattery || batteryBytes(game.exportSave())) menu('import',{
+  if(progress?.bytes || batteryBytes(game.exportSave())) menu('import',{
     title:'載入這個存檔？',text:'這會取代本機的考察進度。你可以先匯出目前的 .sav。',
     choices:[option('取消',filesMenu),option('匯出目前存檔',exportBattery),option('載入存檔',apply)],onBack:filesMenu});
   else await apply();
@@ -156,7 +165,7 @@ function toolsMenu() {
   menu('tools',{title:'連線與檔案',choices:[option('同學連線',roomMenu),option('存檔管理',filesMenu),option('回到遊戲',close)]});
 }
 function filesMenu() {
-  menu('files',{title:'存檔管理',text:'在遊戲內按 START，再選「儲存」。可匯出 .sav 到另一部裝置繼續。',
+  menu('files',{title:'存檔管理',text:'考察進度會自動儲存在這部裝置。重新登入時會在最近的醫護站繼續。可匯出 .sav 到另一部裝置。',
     choices:[option('匯出 .sav',exportBattery),option('載入 .sav',ui.pickSave),option('返回',toolsMenu)],onBack:toolsMenu});
 }
 const statuses={offline:'已離開房間',connecting:'正在連線…',waiting:'房間已開放，等候同學加入。',connected:'已與同學連線。',reconnecting:'正在重新連線…',unavailable:'未能連上房間。請確認房主仍開啟遊戲。',full:'這間房間已滿。'};
@@ -196,8 +205,9 @@ function enterRoom() {
 }
 document.addEventListener('visibilitychange',()=>{
   if(!game || pendingBoot)return;
-  if(document.hidden){void saveIfChanged();game.pause();}
-  else game.start();
+  if(document.hidden)suspend();
+  else {void clock.sync(true);game.start();}
 });
-window.addEventListener('pagehide',()=>{void saveIfChanged();});
+window.addEventListener('pagehide',suspend);
+window.addEventListener('pageshow',e=>{if(e.persisted && !document.hidden && !pendingBoot)game?.start();});
 restore();

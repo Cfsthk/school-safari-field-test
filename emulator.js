@@ -1,3 +1,5 @@
+import {createLighting,fieldLighting,colourField,writeSchoolCalendar} from './daylight.js';
+
 // The browser paints mGBA's 240×160 RGBA framebuffer. Native Emerald owns its
 // camera, map, sprites, dialogue, inventory, transitions and sound mix.
 const runtimeScript = new URL('./engine/mgba.js', import.meta.url);
@@ -5,7 +7,7 @@ const runtimeBinary = new URL('./engine/mgba.wasm', import.meta.url);
 const buttons = { a:0, b:1, select:2, start:3, right:4, left:5, up:6, down:7, r:8, l:9 };
 const width = 240, height = 160;
 const audioCapacity = 4096;
-let runtimePromise;
+let runtimePromise, compiledCore;
 function loadRuntime() {
   if (!runtimePromise) {
     runtimePromise = new Promise((resolve, reject) => {
@@ -34,10 +36,28 @@ const banks = {
   5:[0x800,0x400], 6:[0x1000,0x18000], 7:[0xc00,0x400]
 };
 
-export async function createEmulator({canvas, rom, save, onFrame}) {
+async function compiledRuntime() {
+  return compiledCore ??= (async()=>{
+    const response=await fetch(runtimeBinary);
+    if(!response.ok) throw new Error('未能載入遊戲引擎。');
+    return WebAssembly.compile(await response.arrayBuffer());
+  })().catch(error=>{compiledCore=null;throw error;});
+}
+
+export async function createEmulator({canvas, rom, save, onFrame, worldTime=Date.now}) {
   const romBytes = toBytes(rom);
-  const factory = await loadRuntime();
-  const mod = await factory({locateFile:file => file.endsWith('.wasm') ? runtimeBinary.href : new URL(file, runtimeScript).href});
+  const [factory,compiled] = await Promise.all([loadRuntime(),compiledRuntime()]);
+  const mod=await factory({instantiateWasm(imports,ready) {
+    let memory;
+    imports.a.s=(seconds,ptr)=>{
+      const offset=Number(seconds)-Math.floor(Date.now()/1000);
+      return writeSchoolCalendar(memory,ptr,worldTime()+offset*1000);
+    };
+    const instance=new WebAssembly.Instance(compiled,imports);
+    memory=instance.exports.C;
+    ready(instance);
+    return instance.exports;
+  }});
   mod._mgbawasm_init();
   mod._mgbawasm_set_log_level(0);
 
@@ -70,6 +90,9 @@ export async function createEmulator({canvas, rom, save, onFrame}) {
   canvas.height = height;
   const context = canvas.getContext('2d',{alpha:false});
   const image = context.createImageData(width,height);
+  const pixels=new Uint32Array(image.data.buffer);
+  const lightForTime=createLighting();
+  let illumination=null, lastLightSecond=-1;
   let frameNumber = 0, snapshotFrame = -1, snapshot = null;
   let keyMask = 0, request = 0, due = 0, disposed = false;
   let audio = null, nextAudio = 0;
@@ -105,6 +128,19 @@ export async function createEmulator({canvas, rom, save, onFrame}) {
     return view.getUint32(index,true);
   }
 
+  function readBytes(address,length) {
+    if (disposed || !Number.isSafeInteger(length) || length<0) return new Uint8Array();
+    const bank=address>>>24;
+    if (bank>=8 && bank<14) {
+      const offset=address&0x1ffffff;
+      return offset+length<=romBytes.length ? romBytes.subarray(offset,offset+length) : new Uint8Array();
+    }
+    const layout=banks[bank], offset=address&0xffffff;
+    if (!layout || offset+length>layout[1]) return new Uint8Array();
+    const view=getSnapshot();
+    return view ? new Uint8Array(view.buffer,view.byteOffset+layout[0]+offset,length) : new Uint8Array();
+  }
+
   function playAudio() {
     const frames = mod._mgbawasm_read_audio(audioPtr,audioCapacity);
     if (!frames || !audio || audio.state !== 'running') return;
@@ -128,7 +164,17 @@ export async function createEmulator({canvas, rom, save, onFrame}) {
   }
   function paint() {
     const ptr = mod._mgbawasm_video_ptr();
-    image.data.set(mod.HEAPU8.subarray(ptr,ptr+width*height*4));
+    if(fieldLighting(api)) {
+      const now=worldTime(), second=Math.floor(now/1000);
+      if(!illumination || second!==lastLightSecond) {
+        illumination=lightForTime(now);
+        lastLightSecond=second;
+      }
+    } else illumination=null;
+    if(illumination?.table) {
+      const raw=new Uint32Array(mod.HEAPU8.buffer,ptr,width*height);
+      colourField(api,raw,pixels,illumination.table);
+    } else image.data.set(mod.HEAPU8.subarray(ptr,ptr+width*height*4));
     context.putImageData(image,0,0);
     onFrame?.(api);
   }
@@ -182,7 +228,7 @@ export async function createEmulator({canvas, rom, save, onFrame}) {
         if (audio.state!=='running') return audio.resume().catch(()=>{});
       } catch { /* Gameplay is still available with sound disabled by the browser. */ }
     },
-    read8:address=>read(address,1), read16:address=>read(address,2), read32:address=>read(address,4),
+    daylight:()=>illumination, readBytes, read8:address=>read(address,1), read16:address=>read(address,2), read32:address=>read(address,4),
     dispose() {
       if (disposed) return;
       pause();disposed=true;

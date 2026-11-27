@@ -23,13 +23,13 @@ export const readLocal = key => transaction('readonly',(s,done)=>{
   const req=s.get(key);req.onsuccess=()=>done(req.result);
 });
 export const writeLocal = (key,value) => transaction('readwrite',s=>s.put(value,key));
-export function writeBattery(bytes, revision) {
+export function writeBattery(bytes, revision, {writer,serial}={}) {
   return transaction('readwrite',(s,done)=>{
     const req=s.get('battery');
     req.onsuccess=()=>{
       const current=req.result?.revision ?? 0;
       if(current!==revision) { done(null); return; }
-      s.put({bytes:bytes.slice(),revision:current+1},'battery');
+      s.put({bytes:bytes.slice(),revision:current+1,writer,serial},'battery');
       done(current+1);
     };
   });

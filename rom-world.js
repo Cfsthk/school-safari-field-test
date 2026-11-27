@@ -1,3 +1,5 @@
+import {colourSprite} from './daylight.js';
+
 // Emerald Safari 1.14, BPEE. The GBA owns the camera, local avatar and every game UI.
 // This layer only adds the names and the visiting students' cartridge sprite frames.
 const GBA_ROM = 0x08000000;
@@ -74,7 +76,7 @@ function cartridgeArt(buffer) {
   return {pose};
 }
 
-export function createRomWorld({read8,read16,read32,rom}) {
+export function createRomWorld({read8,read16,read32,rom,daylight}) {
   const b=read8;
   const h=read16 || (a=>b(a)+b(a+1)*256);
   const w=read32 || (a=>(h(a)+h(a+2)*65536)>>>0);
@@ -177,7 +179,7 @@ export function createRomWorld({read8,read16,read32,rom}) {
         // Leave the native hero in front of classmate pixels behind their silhouette.
         c.save();c.globalCompositeOperation='destination-out';
         c.drawImage(a.frame.surface,Math.round(a.x-a.frame.w/2),Math.round(a.y-a.frame.h));c.restore();
-      } else c.drawImage(a.frame.surface,Math.round(a.x-a.frame.w/2),Math.round(a.y-a.frame.h));
+      } else c.drawImage(colourSprite(a.frame.surface, daylight?.()?.table),Math.round(a.x-a.frame.w/2),Math.round(a.y-a.frame.h));
     }
     c.restore();
     c.save();c.setTransform(pw/width,0,0,ph/height,0,0);
