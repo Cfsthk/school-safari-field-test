@@ -103,7 +103,7 @@ export function createPresence({onStatus=()=>{},onSlot=()=>{},onPeers=()=>{},ini
     if (!r.online || !r.client?.isConnected()) return Promise.resolve();
     const client = r.client;
     const destination = r.topic + (r.host ? '/down' : '/up');
-    const message = {...data, from:r.wire, seq:++r.sequence};
+    const message = {...data, from:r.wire, who:r.self, seq:++r.sequence};
     // Keep encrypted writes in their original order even if WebCrypto resolves out of order.
     const payload = pack(r.key,destination,message);
     r.writes = r.writes.then(async () => {
@@ -119,6 +119,7 @@ export function createPresence({onStatus=()=>{},onSlot=()=>{},onPeers=()=>{},ini
     if (!m || id === 'host') return;
     r.leases.set(id,{slot:m.slot,until:Date.now()+LEASE_MS});
     r.heard.delete(id);
+    r.instances.delete(id);
     r.members.delete(id);
     r.pending.delete(id);
     show(r);
@@ -128,7 +129,7 @@ export function createPresence({onStatus=()=>{},onSlot=()=>{},onPeers=()=>{},ini
   function joinMember(r,m) {
     const state = validState(m.state);
     if (!state) return;
-    const id = m.from;
+    const id = m.who;
     const now = Date.now();
     let slot = r.members.get(id)?.slot;
     if (!validSlot(slot)) {
@@ -144,6 +145,7 @@ export function createPresence({onStatus=()=>{},onSlot=()=>{},onPeers=()=>{},ini
     }
     r.leases.delete(id);
     r.members.set(id,{id,slot,...state});
+    r.instances.set(id,m.from);
     r.heard.set(id,now);
     snapshot(r);
     show(r);
@@ -151,15 +153,18 @@ export function createPresence({onStatus=()=>{},onSlot=()=>{},onPeers=()=>{},ini
   }
 
   function asHost(r,m) {
+    // The first public test used the connection identifier as its seat ID.
+    if (m.who === undefined) m.who=m.from;
+    if (typeof m.who !== 'string' || !ROOM_PATTERN.test(m.who)) return;
     if (m.type === 'find') { beacon(r); return; }
     if (m.epoch !== r.wire) return;
     if (m.type === 'join') { joinMember(r,m); return; }
-    const member = r.members.get(m.from);
-    if (!member) return;
-    if (m.type === 'bye') { expire(r,m.from); return; }
+    const member = r.members.get(m.who);
+    if (!member || r.instances.get(m.who) !== m.from) return;
+    if (m.type === 'bye') { expire(r,m.who); return; }
     const state = validState(m.state);
     if (m.type !== 'move' || !state) return;
-    r.heard.set(m.from,Date.now());
+    r.heard.set(m.who,Date.now());
     Object.assign(member,state);
     r.pending.set(member.id,member);
   }
@@ -190,7 +195,11 @@ export function createPresence({onStatus=()=>{},onSlot=()=>{},onPeers=()=>{},ini
     if (!Array.isArray(m.fields) || m.fields.length > MAX_STUDENTS) return;
     const fields = m.fields.map(validMember).filter(Boolean);
     if (m.type === 'snapshot') {
-      const self = fields.find(p=>p.id === r.self);
+      let self = fields.find(p=>p.id === r.self);
+      if (!self) {
+        const legacySeat = fields.find(p=>p.id === r.wire);
+        if (legacySeat) { r.self=r.wire; self=legacySeat; }
+      }
       if (!self || !fields.some(p=>p.id==='host')) {
         if (r.ready) { r.ready=false; r.members.clear(); show(r); status('reconnecting'); requestSeat(r); }
         return;
@@ -215,7 +224,7 @@ export function createPresence({onStatus=()=>{},onSlot=()=>{},onPeers=()=>{},ini
       }
       r.members.clear();
       r.members.set('host',{id:'host',slot:desiredSlot,...position});
-      r.heard.clear(); r.pending.clear();
+      r.heard.clear(); r.pending.clear(); r.instances.clear();
     } else r.members.clear();
     show(r);
     r.retryAt = Date.now() + 2500;
@@ -303,11 +312,32 @@ export function createPresence({onStatus=()=>{},onSlot=()=>{},onPeers=()=>{},ini
       r.timer=setInterval(()=>tick(r),160);
     } catch { if (active === r) status('unavailable'); }
   }
+  function runGuest(r) {
+    // A refresh reclaims this tab's seat. A duplicated tab receives its own ID.
+    const key = 'safari-guest-'+r.code;
+    let previous;
+    try { previous=sessionStorage.getItem(key); } catch { /* private browsing */ }
+    const startGuest = id => {
+      r.self=id;
+      try { sessionStorage.setItem(key,id); } catch { /* memory only */ }
+      run(r);
+    };
+    if (!navigator.locks) { startGuest(r.wire); return; }
+    const claim = id => navigator.locks.request('safari-seat-'+r.code+'-'+id,{ifAvailable:true},async lock => {
+      if (active !== r) return;
+      if (!lock) return claim(randomCode());
+      startGuest(id);
+      await new Promise(resolve=>{ r.unlock=resolve; });
+    });
+    claim(ROOM_PATTERN.test(previous || '') ? previous : r.wire).catch(()=>{
+      if (active===r) startGuest(r.wire);
+    });
+  }
   function start(code,host) {
     leave();
     const wire = randomCode(), now=Date.now();
     const r = active = {code, host, wire, self:host?'host':wire, sequence:0,
-      members:new Map(),heard:new Map(),leases:new Map(),pending:new Map(),seen:new Map(),
+      members:new Map(),instances:new Map(),heard:new Map(),leases:new Map(),pending:new Map(),seen:new Map(),
       reads:Promise.resolve(),writes:Promise.resolve(),online:false,ready:false,full:false,
       connecting:false,lastHost:now,pulse:now,retryAt:now,epoch:null};
     status('connecting');
@@ -316,11 +346,12 @@ export function createPresence({onStatus=()=>{},onSlot=()=>{},onPeers=()=>{},ini
     if (host && navigator.locks) {
       navigator.locks.request('safari-host-'+code,{ifAvailable:true},async lock=>{
         if (active!==r) return;
-        if (!lock) { r.host=false; r.self=wire; }
+        if (!lock) { r.host=false; runGuest(r); return; }
         run(r);
-        if (lock) await new Promise(resolve=>{ r.unlock=resolve; });
+        await new Promise(resolve=>{ r.unlock=resolve; });
       }).catch(()=>{ if (active===r) run(r); });
-    } else run(r);
+    } else if (host) run(r);
+    else runGuest(r);
   }
   function getInvite() {
     if (!active) return null;
