@@ -190,9 +190,9 @@ export function createRomWorld({read8,read16,read32,rom}) {
     for(const a of [me,...group.filter(v=>!v.local)]){
       const title=[a.peer.className,a.peer.name].filter(Boolean).join(' ');
       if(!title)continue;
-      const icon=a.peer.observing?' ◉':'';
-      const text=title+icon;
-      const tw=c.measureText(text).width+4;
+      const iconScale=Math.max(1,Math.round(size/7));
+      const iconWidth=a.peer.observing?iconScale*8:0;
+      const tw=c.measureText(title).width+iconWidth+4;
       let x=Math.max(tw/2+1,Math.min(width-tw/2-1,a.x*sx));
       let y=Math.max(size+1,Math.min(height-2,(a.top-1)*sy));
       // Name tags for students on adjacent tiles can overlap at the standard GBA zoom.
@@ -205,7 +205,15 @@ export function createRomWorld({read8,read16,read32,rom}) {
       }
       if(y!==rawY){c.beginPath();c.moveTo(x,y);c.lineTo(a.x*sx,rawY);c.strokeStyle='#3c5045';c.lineWidth=1;c.stroke();}
       c.strokeStyle='#283630';c.lineWidth=Math.max(2,size*.18);
-      c.strokeText(text,x,y);c.fillStyle=a.local?'#ffed9d':'#fffdf3';c.fillText(text,x,y);
+      c.strokeText(title,x-iconWidth/2,y);
+      c.fillStyle=a.local?'#ffed9d':'#fffdf3';c.fillText(title,x-iconWidth/2,y);
+      if(a.peer.observing){
+        const left=Math.round(x+tw/2-iconWidth),top=Math.round(y-size/2-iconScale*3);
+        const binoculars=['.##.##.','.##.##.','#######','#..#..#','#######'];
+        c.fillStyle='#293c32';c.fillRect(left-1,top-1,7*iconScale+2,5*iconScale+2);
+        c.fillStyle='#caffdc';
+        binoculars.forEach((row,j)=>{for(let i=0;i<row.length;i++)if(row[i]==='#')c.fillRect(left+i*iconScale,top+j*iconScale,iconScale,iconScale);});
+      }
       placed.push({x,y,w:tw});
     }
     c.restore();
