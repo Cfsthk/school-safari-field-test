@@ -1,6 +1,6 @@
-import {createUI} from './ui.js?screen=1';
+import {createUI} from './ui.js?screen=2';
 import {createEmulator} from './emulator.js?cycle=1';
-import {createRomWorld} from './rom-world.js?screen=1';
+import {createRomWorld} from './rom-world.js?screen=2';
 import {createPresence} from './presence.js?rom=114';
 import {students} from './students.js';
 import {demonstration} from './demonstration.js';
@@ -58,7 +58,7 @@ function frame(core) {
   if (!world || core!==game || now-lastSample<28) return;
   lastSample=now;
   const sample=world.sample();
-  ui.fieldState(sample.startMenu,sample.bottomDialogue);
+  ui.setStartMenuOpen(sample.startMenu);
   latest=sample.state ?? noPosition;
   if(shared) connection.update({...latest,...display});
   const classmates=shared ? peers.map(p=>({...p,className:p.className || students[p.slot].className,name:p.name || students[p.slot].name}))

@@ -53,7 +53,6 @@ button:focus-visible,input:focus-visible { outline:3px solid #eeb855; outline-of
   --key-stroke:rgba(255,255,242,.7);
   --key-ink:#ffffee;
 }
-.hardware.reading { --bottom:32%; }
 .hardware button,.hardware .dpad { pointer-events:auto; touch-action:none; }
 .dpad { position:absolute; left:var(--left); bottom:var(--bottom); display:grid; grid-template-columns:repeat(3,var(--pad));grid-template-rows:repeat(3,var(--pad));grid-template-areas:". n ." "w h e" ". s ."; touch-action:none; }
 .dpad button,.hub { display:grid; place-items:center; padding:0; color:var(--key-ink); background:var(--key-fill); border:2px solid var(--key-stroke); }

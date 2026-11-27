@@ -5,7 +5,7 @@ import {colourSprite} from './daylight.js';
 const GBA_ROM = 0x08000000;
 const MAIN = 0x030022c0, FIELD = 0x08085e5c, BATTLE = 0x08038420;
 const FIELD_MESSAGE = 0x020375bc, MENU_CALLBACK = 0x03005df4, TASKS = 0x03005e00;
-const START_MENU_INPUT = 0x0809fac5, SHOW_START_MENU = 0x0809fa35, SAVE_DIALOG = 0x0809fe45;
+const START_MENU_INPUT = 0x0809fac5, SHOW_START_MENU = 0x0809fa35;
 const SAVE_PTR = 0x03005d8c, OBJECTS = 0x02037350, AVATAR = 0x02037590;
 const SPRITES = 0x02020630, OFFSET_X = 0x02021bbc, OFFSET_Y = 0x02021bbe;
 const CAMERA = 0x03005dd0, TOTAL_X = 0x03005dec, TOTAL_Y = 0x03005de8;
@@ -109,9 +109,8 @@ export function createRomWorld({read8,read16,read32,rom,daylight}) {
     const menuCallback=cb===FIELD ? w(MENU_CALLBACK) : 0;
     const startMenu=menuCallback===START_MENU_INPUT && taskActive(SHOW_START_MENU);
     const fieldMessage=cb===FIELD && (b(FIELD_MESSAGE)!==0 || dialogueFrameVisible());
-    const bottomDialogue=observing || fieldMessage || (menuCallback===SAVE_DIALOG && taskActive(SHOW_START_MENU));
     function hidden() {
-      return {visible:false, observing, startMenu, bottomDialogue, state:lastField?{...lastField,observing}:null};
+      return {visible:false, observing, startMenu, state:lastField?{...lastField,observing}:null};
     }
     if (cb!==FIELD || observing) return hidden();
     const save=w(SAVE_PTR);
@@ -134,7 +133,7 @@ export function createRomWorld({read8,read16,read32,rom,daylight}) {
     const localX=sh(sprite+32)+sh(sprite+36)+dx;
     const localY=sh(sprite+34)+sh(sprite+38)+dy-s8(b(sprite+41));
     const anim=b(sprite+42),command=b(sprite+43);
-    return {visible:true,observing:false,startMenu,bottomDialogue,state:lastField,cameraX,cameraY,localX,localY,
+    return {visible:true,observing:false,startMenu,state:lastField,cameraX,cameraY,localX,localY,
       localHeight:-2*s8(b(sprite+41)),localStep:anim>=4&&anim<8?command%4:-1,
       // Native area-name window has a separate small tilemap above visiting students.
       routeSign:b(0x0203cd8d)!==0xff && taskActive(0x080d487d)};

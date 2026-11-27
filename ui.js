@@ -100,14 +100,11 @@ export function createUI({onDirection,onButton,onTools,onFile,onSaveFile,onExpor
     else tapNative('Start');
   }
 
-  function fieldState(startMenu, bottomDialogue) {
+  function setStartMenuOpen(startMenu) {
     if (nativeMenuOpen !== startMenu) {
       nativeMenuOpen = startMenu;
       webTools.hidden = !startMenu || Boolean(active);
       menuButton.setAttribute('aria-expanded',String(startMenu));
-    }
-    if (hardware.classList.contains('reading') !== bottomDialogue) {
-      hardware.classList.toggle('reading',bottomDialogue);
     }
   }
 
@@ -124,7 +121,7 @@ export function createUI({onDirection,onButton,onTools,onFile,onSaveFile,onExpor
 
   function setup(text = '') {
     releaseAll();
-    fieldState(false,false);
+    setStartMenuOpen(false);
     close();
     hardware.hidden = true;
     setupScreen.hidden = false;
@@ -336,6 +333,6 @@ export function createUI({onDirection,onButton,onTools,onFile,onSaveFile,onExpor
     saveProfile = save;
   }
 
-  return {canvas,overlay,ready,setup,fieldState,resumeField,pickROM,pickSave,exportSave,notify,show,close,
+  return {canvas,overlay,ready,setup,setStartMenuOpen,resumeField,pickROM,pickSave,exportSave,notify,show,close,
     isOpen:()=> Boolean(active),invite,profile};
 }
